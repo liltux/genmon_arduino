@@ -1,0 +1,306 @@
+/*
+    Author: granttoth
+
+    This sketch is intended to work with a TTL to RS232 shield/board and a relay board or two.
+    You will also need some sort of relay/button to trigger the start, stop, and to reset the alarms.
+
+    Make sure to install the ModbusMaster library in the Arduino IDE.
+    Tools > Manage Libraries
+
+    The registers in the testing function are used to force the generator to show results. 
+    Pulling a sensor and such.  I haven't tested this part yet.
+
+*/
+
+#include <ModbusMaster.h>
+
+int startPin = 19;
+int stopPin = 18;
+int ackAlarmPin = 17;
+
+// Timer used to set the metering interval
+const unsigned long eventInterval = 3000;
+unsigned long previousTime;
+
+// Generator slave ID
+const int genId = 100;
+
+// Initiate ModbusMaster object
+ModbusMaster node;
+
+void setup()
+{
+  
+  // Pins 0 & 1 are used for the serial communication
+  // Set pins 3 through 16 as outputs
+  for (int thisPin = 2; thisPin < 16; thisPin++) {
+    pinMode(thisPin, OUTPUT);
+    // Make sure pins default off
+    digitalWrite(thisPin, LOW);
+  }
+
+  pinMode(startPin, INPUT_PULLUP);
+  pinMode(stopPin, INPUT_PULLUP);
+  pinMode(ackAlarmPin, INPUT_PULLUP);
+
+  Serial.begin(9600);
+  node.begin(genId, Serial);
+}
+
+
+void loop() {
+  unsigned long currentTime = millis();
+
+  inputPoll ();
+
+  if (currentTime - previousTime > eventInterval) {
+    registerRead ();
+    //testing ();
+    previousTime = currentTime;
+  }
+}
+
+void inputPoll () {
+
+  // Input Pins
+  int startPinValue = digitalRead(startPin);
+  int stopPinValue = digitalRead(stopPin);
+  int ackAlarmPinValue = digitalRead(ackAlarmPin);
+
+  if (startPinValue == LOW) {
+    startGen ();
+  }
+
+  if (stopPinValue == LOW) {
+    stopGen ();
+  }
+
+  if (ackAlarmPinValue == LOW) {
+    resetAlarms ();
+  }
+
+}
+
+void startGen () {
+  uint8_t startgen;
+  node.clearTransmitBuffer();
+  node.setTransmitBuffer(0, 0x00FF);
+  node.setTransmitBuffer(1, 0x00FF);
+  node.setTransmitBuffer(2, 0x00FF);
+  startgen = node.writeMultipleRegisters(0x019c, 3);
+}
+
+void stopGen () {
+  uint8_t stopgen;
+  node.clearTransmitBuffer();
+  node.setTransmitBuffer(0, 0x0000);
+  node.setTransmitBuffer(1, 0x0000);
+  node.setTransmitBuffer(2, 0x0000);
+  stopgen = node.writeMultipleRegisters(0x019c, 3);
+}
+
+void resetAlarms () {
+  uint8_t resetalarms;
+  node.clearTransmitBuffer();
+  node.setTransmitBuffer(0, 0x0001);
+  resetalarms = node.writeMultipleRegisters(0x012e, 1);
+}
+
+void registerRead () {
+  static uint8_t i, j, result;
+  uint16_t data[3];
+
+  // Read 4 registers starting at 0x0082
+  result = node.readHoldingRegisters(0x0082, 4);
+
+  // Put results in to array
+  if (result == node.ku8MBSuccess)
+  {
+    for (j = 0; j < 2 ; j++)
+    {
+      data[j] = node.getResponseBuffer(j);
+    }
+
+    // Engine Running
+    if ((data[0] & 0x2000) == 0x2000) {
+      digitalWrite(2, HIGH);
+    } else {
+      digitalWrite(2, LOW);
+    }
+
+    // Key not in Auto - Note the not equal (!).  Anything other than auto will alarm.
+    if ((data[0] & 0x0040) != 0x0040) {
+      digitalWrite(3, HIGH);
+    } else {
+      digitalWrite(3, LOW);
+    }
+
+    // Overcrank Alarm
+    if ((data[0] & 0x0010) == 0x0010) {
+      digitalWrite(4, HIGH);
+    } else {
+      digitalWrite(4, LOW);
+    }
+
+    // Oil Temp High
+    if ((data[0] & 0x0002) == 0x0002) {
+      digitalWrite(5, HIGH);
+    } else {
+      digitalWrite(5, LOW);
+    }
+
+    // Oil Temp Low
+    if ((data[0] & 0x0001) == 0x0001) {
+      digitalWrite(6, HIGH);
+    } else {
+      digitalWrite(6, LOW);
+    }
+
+    // Coolant Temp High
+    if ((data[1] & 0x1000) == 0x1000) {
+      digitalWrite(7, HIGH);
+    } else {
+      digitalWrite(7, LOW);
+    }
+
+    // Coolant Temp Low
+    if ((data[1] & 0x0800) == 0x0800) {
+      digitalWrite(8, HIGH);
+    } else {
+      digitalWrite(8, LOW);
+    }
+
+    // Oil Pressure High
+    if ((data[1] & 0x0080) == 0x0080) {
+      digitalWrite(9, HIGH);
+    } else {
+      digitalWrite(9, LOW);
+    }
+
+    // Oil Pressure Low
+    if ((data[1] & 0x0040) == 0x0040) {
+      digitalWrite(10, HIGH);
+    } else {
+      digitalWrite(10, LOW);
+    }
+
+    // Coolant Level high
+    if ((data[1] & 0x0004) == 0x0004) {
+      digitalWrite(11, HIGH);
+    } else {
+      digitalWrite(11, LOW);
+    }
+
+    // Coolant Level Low
+    if ((data[1] & 0x0002) == 0x0002) {
+      digitalWrite(12, HIGH);
+    } else {
+      digitalWrite(12, LOW);
+    }
+
+    // Throttle Position High
+    if ((data[2] & 0x0008) == 0x0008) {
+      digitalWrite(13, HIGH);
+    } else {
+      digitalWrite(13, LOW);
+    }
+
+    // Throttle Position Low
+    if ((data[2] & 0x0004) == 0x0004) {
+      digitalWrite(14, HIGH);
+    } else {
+      digitalWrite(14, LOW);
+    }
+
+    // Battery Charge Voltage High
+    if ((data[3] & 0x0010) == 0x0010) {
+      digitalWrite(15, HIGH);
+    } else {
+      digitalWrite(15, LOW);
+    }
+
+    // Battery Charge Voltage Low
+    if ((data[3] & 0x0002) == 0x0002) {
+      digitalWrite(16, HIGH);
+    } else {
+      digitalWrite(16, LOW);
+    }
+
+    node.clearResponseBuffer();
+  }
+}
+
+void testing () {
+  static uint8_t i, j, result;
+  uint16_t data[7];
+
+  // Read 7 registers starting at 0x0082
+  result = node.readHoldingRegisters(0x0082, 7);
+
+  // Put results in to array
+  if (result == node.ku8MBSuccess)
+  {
+    for (j = 0; j < 2 ; j++)
+    {
+      data[j] = node.getResponseBuffer(j);
+    }
+
+    // Genertor in Alarm
+    if ((data[0] & 0x8000) != 0x8000) {
+      digitalWrite(2, HIGH);
+    } else {
+      digitalWrite(2, LOW);
+    }
+
+    // Stopped in Alarm
+    if ((data[0] & 0x0200) == 0x0200) {
+      digitalWrite(3, HIGH);
+    } else {
+      digitalWrite(3, LOW);
+    }
+
+    // Oil Temp Fault
+    if ((data[1] & 0x2000) == 0x2000) {
+      digitalWrite(4, HIGH);
+    } else {
+      digitalWrite(4, LOW);
+    }
+
+    // Coolant Temp Fault
+    if ((data[1] & 0x0100) == 0x0100) {
+      digitalWrite(5, HIGH);
+    } else {
+      digitalWrite(5, LOW);
+    }
+
+    // Oil Pressure Fault
+    if ((data[1] & 0x0008) == 0x0008) {
+      digitalWrite(6, HIGH);
+    } else {
+      digitalWrite(6, LOW);
+    }
+
+    // Coolant Level Fault
+    if ((data[2] & 0x4000) == 0x4000) {
+      digitalWrite(7, HIGH);
+    } else {
+      digitalWrite(7, LOW);
+    }
+
+    // Throttle Position Fault
+    if ((data[3] & 0x8000) == 0x8000) {
+      digitalWrite(8, HIGH);
+    } else {
+      digitalWrite(8, LOW);
+    }
+
+    // Emergency Stop
+    if ((data[6] & 0x0200) == 0x0200) {
+      digitalWrite(9, HIGH);
+    } else {
+      digitalWrite(9, LOW);
+    }
+
+    node.clearResponseBuffer();
+  }
+}
